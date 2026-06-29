@@ -650,6 +650,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 1.5rem;
+  align-items: flex-start; /* 가로 사진 카드가 세로 사진 높이에 맞춰 억지로 늘어나는 현상 완벽 방어 */
   width: 100%;
 }
 
