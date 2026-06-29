@@ -981,16 +981,21 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 .modal-photo-preview {
   width: 100%;
-  aspect-ratio: 4 / 3;
+  max-height: 420px;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--panel-border);
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .modal-photo-preview img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  max-width: 100%;
+  max-height: 420px;
+  object-fit: contain; /* 세로/가로 사진 고유 비율 잘림 없이 완벽 보존 */
+  display: block;
 }
 
 .modal-report-details {
