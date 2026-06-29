@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AetherLens - AI 여행 사진 정리 에이전트</title>
+  
+  <!-- 구글 Outfit & Noto Sans KR 폰트 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+  
+  <!-- CSS 스타일시트 -->
+  <link rel="stylesheet" href="style.css">
+  
+  <!-- Lucide 아이콘 CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- OpenCV 로딩 상태를 즉시 감지하기 위해 인라인 스크립트를 헤드에 조기 바인딩 -->
+  <script>
+    window.opencvLoaded = false;
+    window.onOpenCvReady = function() {
+      window.opencvLoaded = true;
+      const badge = document.getElementById('opencv-status');
+      if (badge) {
+        badge.textContent = '준비 완료';
+        badge.className = 'status-badge status-ready';
+      }
+      // 커스텀 이벤트 전송하여 app.js에 알림
+      const event = new CustomEvent('opencv-ready');
+      window.dispatchEvent(event);
+    };
+
+    window.onOpenCvError = function() {
+      const badge = document.getElementById('opencv-status');
+      if (badge) {
+        badge.textContent = '로드 실패';
+        badge.className = 'status-badge status-error';
+      }
+    };
+  </script>
+</head>
+<body>
+
+  <!-- 배경 네온 오라 효과 -->
+  <div class="neon-bg-glow glow-1"></div>
+  <div class="neon-bg-glow glow-2"></div>
+
+  <div class="app-container">
+    <!-- 헤더 영역 -->
+    <header class="app-header">
+      <div class="logo-area">
+        <div class="logo-icon">▲</div>
+        <h1>Aether<span>Lens</span></h1>
+      </div>
+      <p class="tagline">100% 로컬 연산 기반 AI 여행 사진 선별 및 자동 보정 에이전트</p>
+    </header>
+
+    <main class="app-main">
+      <!-- 좌측 패널: 설정 및 제어 -->
+      <section class="control-panel panel-glass">
+        <div class="panel-section">
+          <h2><i data-lucide="key" class="icon-neon"></i> AI 설정</h2>
+          <div class="input-group">
+            <label for="api-key-input">Gemini API Key</label>
+            <input type="password" id="api-key-input" placeholder="AI Key를 입력하세요 (브라우저 로컬 저장)">
+            <p class="input-tip">
+              입력하신 Key는 서버로 전송되지 않고 본인 브라우저에만 저장됩니다.
+              <a href="https://aistudio.google.com/app/apikey" target="_blank" class="link-neon">구글 API Key 발급/확인 ↗</a>
+            </p>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <h2><i data-lucide="sliders" class="icon-neon"></i> 필터링 감도 설정</h2>
+          
+          <div class="range-group">
+            <div class="range-labels">
+              <label for="blur-threshold">흔들림 허용치 (Laplacian)</label>
+              <span id="blur-val">25</span>
+            </div>
+            <input type="range" id="blur-threshold" min="5" max="80" value="25">
+            <p class="input-tip">값이 높을수록 더 엄격하게 흔들린 사진을 필터링합니다.</p>
+          </div>
+
+          <div class="range-group">
+            <div class="range-labels">
+              <label for="dup-threshold">중복 감도 (pHash)</label>
+              <span id="dup-val">12</span>
+            </div>
+            <input type="range" id="dup-threshold" min="5" max="30" value="12">
+            <p class="input-tip">값이 작을수록 구도가 거의 정확히 일치해야 중복 처리됩니다.</p>
+          </div>
+
+          <div class="range-group">
+            <div class="range-labels">
+              <label for="best-ratio">베스트 컷 선정 비율</label>
+              <span id="ratio-val">40%</span>
+            </div>
+            <input type="range" id="best-ratio" min="10" max="100" step="5" value="40">
+            <p class="input-tip">중복 제거 후 상위 몇 %를 최종 베스트 컷으로 정할지 설정합니다.</p>
+          </div>
+        </div>
+
+        <div class="panel-section system-status-section">
+          <h2><i data-lucide="cpu" class="icon-neon"></i> 시스템 엔진 상태</h2>
+          <div class="engine-status">
+            <div class="status-item">
+              <span>OpenCV.js (WASM)</span>
+              <span id="opencv-status" class="status-badge status-loading">로드 중...</span>
+            </div>
+            <div class="status-item">
+              <span>Exif.js (메타데이터)</span>
+              <span class="status-badge status-ready">준비 완료</span>
+            </div>
+            <div class="status-item">
+              <span>JSZip (압축 엔진)</span>
+              <span class="status-badge status-ready">준비 완료</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 우측/중앙 패널: 메인 작업 영역 -->
+      <section class="workspace-panel">
+        
+        <!-- 업로드 영역 -->
+        <div id="drop-zone" class="drop-zone panel-glass">
+          <div class="drop-content">
+            <i data-lucide="upload-cloud" class="upload-icon"></i>
+            <h3>여행 사진 폴더 또는 여러 사진 선택</h3>
+            <p>드래그 앤 드롭하거나 아래 버튼을 클릭하여 사진 파일들을 불러오세요 (JPG, PNG 지원)</p>
+            <button class="btn-primary" id="select-btn">파일 선택</button>
+            <input type="file" id="file-input" multiple accept="image/jpeg, image/png" style="display: none;">
+          </div>
+        </div>
+
+        <!-- 사진 정리 대기 스테이징 구역 (신규 추가) -->
+        <div id="staging-area" class="staging-area panel-glass hidden">
+          <div class="staging-header">
+            <div class="staging-title">
+              <i data-lucide="images" class="icon-neon"></i>
+              <h3>정리 대기 중인 사진 (<span id="staging-count">0</span>장)</h3>
+            </div>
+            <div class="staging-actions">
+              <button class="btn-secondary" id="staging-add-btn"><i data-lucide="plus"></i> 사진 추가</button>
+              <button class="btn-primary btn-glow" id="start-agent-btn"><i data-lucide="play"></i> AI 에이전트 가동</button>
+            </div>
+          </div>
+          <div class="staging-grid" id="staging-grid">
+            <!-- 동적으로 대기 사진 카드 추가 (X 삭제 버튼 포함) -->
+          </div>
+        </div>
+
+        <!-- 에이전트 모니터링 터미널 (진행 시 노출) -->
+        <div id="agent-terminal" class="agent-terminal panel-glass hidden">
+          <div class="terminal-header">
+            <div class="terminal-title">
+              <div class="pulse-dot"></div>
+              <span>AetherLens AI 에이전트 작동 중</span>
+            </div>
+            <!-- 가로 프로그레스 진행 바 구조 추가 -->
+            <div class="terminal-progress-container">
+              <div class="progress-bar-bg">
+                <div class="progress-bar-fill" id="progress-bar-fill" style="width: 0%"></div>
+              </div>
+              <div class="terminal-progress" id="total-progress">0%</div>
+            </div>
+          </div>
+          
+          <!-- 파이프라인 시각화 모듈 -->
+          <div class="pipeline-visualizer">
+            <div class="step-node active" id="step-load">
+              <div class="node-icon"><i data-lucide="file-image"></i></div>
+              <span>로딩</span>
+            </div>
+            <div class="step-line" id="line-1"></div>
+            <div class="step-node" id="step-blur">
+              <div class="node-icon"><i data-lucide="eye-off"></i></div>
+              <span>흔들림 감지</span>
+            </div>
+            <div class="step-line" id="line-2"></div>
+            <div class="step-node" id="step-dup">
+              <div class="node-icon"><i data-lucide="copy"></i></div>
+              <span>중복 제거</span>
+            </div>
+            <div class="step-line" id="line-3"></div>
+            <div class="step-node" id="step-score">
+              <div class="node-icon"><i data-lucide="award"></i></div>
+              <span>점수 부여</span>
+            </div>
+            <div class="step-line" id="line-4"></div>
+            <div class="step-node" id="step-edit">
+              <div class="node-icon"><i data-lucide="wand-2"></i></div>
+              <span>자동 보정</span>
+            </div>
+            <div class="step-line" id="line-5"></div>
+            <div class="step-node" id="step-album">
+              <div class="node-icon"><i data-lucide="book-open"></i></div>
+              <span>앨범 생성</span>
+            </div>
+          </div>
+
+          <div class="terminal-logs" id="terminal-logs-box">
+            <!-- 실시간 한글 에이전트 작동 로그 출력 -->
+            <div class="log-line system">[시스템] 에이전트 초기화 완료. 사용자 사진 대기 중...</div>
+          </div>
+        </div>
+
+        <!-- 결과 대시보드 (진행 완료 시 노출) -->
+        <div id="results-panel" class="results-panel hidden">
+          
+          <!-- 상단 앨범 정보 및 다운로드 섹션 -->
+          <div class="album-summary-card panel-glass">
+            <div class="summary-details">
+              <h2 id="album-title">제주 푸른 여름의 조각들</h2>
+              <p id="album-description">에이전트가 생성한 여행 스토리 북이 렌더링될 예정입니다.</p>
+              <div class="stats-pills">
+                <span class="pill"><i data-lucide="image"></i> 전체: <strong id="stat-total">0</strong>장</span>
+                <span class="pill pill-alert"><i data-lucide="eye-off"></i> 흔들림 제거: <strong id="stat-blur">0</strong>장</span>
+                <span class="pill pill-warning"><i data-lucide="copy"></i> 중복 제외: <strong id="stat-dup">0</strong>장</span>
+                <span class="pill pill-success"><i data-lucide="sparkles"></i> 최종 보정: <strong id="stat-best">0</strong>장</span>
+              </div>
+            </div>
+            <div class="summary-actions">
+              <button class="btn-primary btn-large btn-glow" id="download-zip-btn">
+                <i data-lucide="download"></i> 보정 완료된 베스트 컷 다운로드 (.zip)
+              </button>
+            </div>
+          </div>
+
+          <!-- 탭 네비게이션 -->
+          <div class="tab-nav">
+            <button class="tab-btn active" data-tab="tab-album">📖 여행 앨범북</button>
+            <button class="tab-btn" data-tab="tab-gallery">✨ 보정 갤러리</button>
+            <button class="tab-btn" data-tab="tab-filtered">🗑️ 정리된 사진 리스트</button>
+          </div>
+
+          <!-- 탭 콘텐츠: 앨범북 -->
+          <div class="tab-content active" id="tab-album">
+            <!-- 앨범 이미지 보기 크기 줌 제어 바 -->
+            <div class="album-controls-bar panel-glass">
+              <div class="zoom-controls">
+                <span class="zoom-label"><i data-lucide="zoom-in" class="icon-neon"></i> 앨범 이미지 크기:</span>
+                <div class="zoom-btn-group">
+                  <button class="zoom-btn" data-zoom="out" title="작게 모아보기 (5열)"><i data-lucide="grid-3x3"></i> 작게</button>
+                  <button class="zoom-btn active" data-zoom="normal" title="기본 크기 (3열)"><i data-lucide="grid-2x2"></i> 기본</button>
+                  <button class="zoom-btn" data-zoom="in" title="크게 상세보기 (2열)"><i data-lucide="image"></i> 크게</button>
+                </div>
+              </div>
+            </div>
+            
+            <div class="album-book-view" id="album-book-container">
+              <!-- 에피소드 및 스토리 앨범 렌더링 -->
+            </div>
+          </div>
+
+          <!-- 탭 콘텐츠: 갤러리 -->
+          <div class="tab-content" id="tab-gallery">
+            <div class="gallery-grid" id="gallery-grid-container">
+              <!-- 베스트 컷 보정 전/후 비교 카드 렌더링 -->
+            </div>
+          </div>
+
+          <!-- 탭 콘텐츠: 필터링 목록 -->
+          <div class="tab-content" id="tab-filtered">
+            <div class="filtered-container">
+              <div class="filtered-section">
+                <h3>🚫 흔들림으로 분류 탈락된 사진</h3>
+                <div class="filtered-grid" id="blurry-grid"></div>
+              </div>
+              <div class="filtered-section">
+                <h3>👥 유사 구도/중복으로 분류 제외된 사진</h3>
+                <div class="filtered-grid" id="duplicate-grid"></div>
+              </div>
+              <div class="filtered-section">
+                <h3>📉 품질 순위 컷오프(선정 비율 제한)로 제외된 사진</h3>
+                <div class="filtered-grid" id="cutoff-grid"></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </section>
+    </main>
+  </div>
+
+  <!-- 상세 분석 정보 모달 팝업 -->
+  <div id="detail-modal" class="modal-overlay hidden">
+    <div class="modal-content panel-glass">
+      <div class="modal-header">
+        <h3><i data-lucide="bar-chart-3" class="icon-neon"></i> AI 미적 품질 리포트</h3>
+        <button class="modal-close-btn" id="modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-photo-preview-wrapper">
+          <div class="modal-photo-preview">
+            <img id="modal-img" src="" alt="베스트 컷">
+          </div>
+          <!-- 사진 아래쪽 미적 평가 코멘트 멘트 공간 -->
+          <p id="modal-photo-caption" class="modal-photo-caption-text">이 사진은 구도와 선명도 측면에서 완벽한 균형을 이룹니다.</p>
+        </div>
+        <div class="modal-report-details">
+          <div class="modal-filename-row">
+            <span id="modal-filename">photo_001.jpg</span>
+            <span id="modal-capture-time">2026-06-29 12:00</span>
+          </div>
+          
+          <!-- 종합 점수 표시 -->
+          <div class="modal-score-box">
+            <div class="score-number-wrapper">
+              <span class="score-large" id="modal-score">85</span>
+              <span class="score-max">/ 100</span>
+            </div>
+            <div class="score-title">종합 미적 점수</div>
+          </div>
+
+          <!-- 개별 채점 요인 리스트 -->
+          <div class="factor-list">
+            <div class="factor-item">
+              <div class="factor-meta">
+                <span>🔍 초점 선명도 (Sharpness)</span>
+                <strong id="modal-factor-blur">우수</strong>
+              </div>
+              <div class="factor-bar-bg"><div class="factor-bar-fill" id="bar-blur" style="width: 80%"></div></div>
+              <p class="factor-desc" id="modal-desc-blur">라플라시안 선명도가 높아 엣지가 또렷하게 감지되었습니다.</p>
+            </div>
+
+            <div class="factor-item">
+              <div class="factor-meta">
+                <span>🎨 색상 명암비 (Contrast)</span>
+                <strong id="modal-factor-contrast">풍부</strong>
+              </div>
+              <div class="factor-bar-bg"><div class="factor-bar-fill" id="bar-contrast" style="width: 75%"></div></div>
+              <p class="factor-desc" id="modal-desc-contrast">히스토그램이 고르게 분포하여 눈에 띄는 풍부한 대비를 보여줍니다.</p>
+            </div>
+
+            <div class="factor-item">
+              <div class="factor-meta">
+                <span>☀️ 노출 밸런스 (Exposure)</span>
+                <strong id="modal-factor-exposure">적정</strong>
+              </div>
+              <div class="factor-bar-bg"><div class="factor-bar-fill" id="bar-exposure" style="width: 90%"></div></div>
+              <p class="factor-desc" id="modal-desc-exposure">평균 조도가 중간 레벨에 위치하여 타거나 뭉개진 영역이 없습니다.</p>
+            </div>
+          </div>
+
+          <!-- 최종 선정 총평 -->
+          <div class="report-summary-box">
+            <h4>💡 AI 에이전트 최종 분석평</h4>
+            <p id="modal-summary-text">이 사진은 유사 연사 그룹 중 뛰어난 수평 정렬을 가졌으며, 로컬 화질 통계에서 압도적으로 우수하여 베스트 컷으로 선정되었습니다.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 라이브러리 스크립트 CDN 로딩 -->
+  <!-- Exif extraction -->
+  <script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
+  <!-- JSZip -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  
+  <!-- OpenCV.js (WASM) -->
+  <script async src="https://docs.opencv.org/4.5.4/opencv.js" onload="onOpenCvReady();" onerror="onOpenCvError();"></script>
+  
+  <!-- 애플리케이션 코드 스크립트 (CORS를 피하기 위해 표준 비모듈형 스크립트로 동작성 개선) -->
+  <script src="app.js"></script>
+</body>
+</html>
