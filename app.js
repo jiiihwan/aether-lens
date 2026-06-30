@@ -166,46 +166,26 @@ function setupStagingEventListeners() {
   }
 
   if (startAgentBtn) {
-    startAgentBtn.addEventListener('click', async () => {
+    startAgentBtn.addEventListener('click', () => {
       const apiKeyInput = document.getElementById('api-key-input');
       const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
       
-      // 1. 유효한 구글 API Key가 지정되었으면 즉시 가동 (클라우드 AI 모드)
-      if (isValidApiKey(apiKey)) {
-        if (stagedFiles.length === 0) {
-          alert('정리 대기 중인 사진이 없습니다. 사진을 먼저 추가해주세요.');
+      // API Key 미입력 또는 유효하지 않을 때 확인 창(confirm)으로 우회 동의 제어
+      if (!isValidApiKey(apiKey)) {
+        const proceedLocal = confirm(
+          '🔑 Gemini API Key가 입력되지 않았거나 유효하지 않습니다.\n\n' +
+          '확인을 누르시면 [AI 감성 캡션/스토리북 제작] 및 [AI Vision 구도 오디션] 없이,\n' +
+          '오직 브라우저 로컬 엔진(OpenCV WASM 선명도 & 명암비 대비 통계) 기반의 기본 사진 정리 기능만으로 분석을 진행합니다.\n\n' +
+          '로컬 기본 정리 기능만으로 진행하시겠습니까?'
+        );
+        
+        if (!proceedLocal) {
+          if (apiKeyInput) {
+            apiKeyInput.focus();
+            apiKeyInput.scrollIntoView({ behavior: 'smooth' });
+          }
           return;
         }
-        runAgentProcess();
-        return;
-      }
-
-      // 2. API Key가 없거나 무효하면, 크롬 내장 AI (Gemini Nano) 가용성 실시간 체크
-      const isChromeAiReady = await isChromeBuiltInAiAvailable();
-      if (isChromeAiReady) {
-        // 크롬 내장 AI 사용 가능 시 팝업 확인창 건너뛰고 스르륵 즉시 자동 실행 (무료 로컬 AI 모드)
-        if (stagedFiles.length === 0) {
-          alert('정리 대기 중인 사진이 없습니다. 사진을 먼저 추가해주세요.');
-          return;
-        }
-        runAgentProcess();
-        return;
-      }
-
-      // 3. 둘 다 불가능한 경우에만 최종 우회 동의 컨펌 노출 (간이 로컬 룰 모드)
-      const proceedLocal = confirm(
-        '🔑 Gemini API Key가 없고 Chrome 내장 AI도 감지되지 않습니다.\n\n' +
-        '확인을 누르시면 [AI 감성 스토리] 및 [AI Vision 구도 심사]를 건너뛰고,\n' +
-        '오직 브라우저 로컬 엔진(WASM 화질 선명도 & 명암 통계) 기반의 간이 정리 기능만으로 분석을 진행합니다.\n\n' +
-        '간이 로컬 정리 기능으로 진행하시겠습니까?'
-      );
-      
-      if (!proceedLocal) {
-        if (apiKeyInput) {
-          apiKeyInput.focus();
-          apiKeyInput.scrollIntoView({ behavior: 'smooth' });
-        }
-        return;
       }
 
       if (stagedFiles.length === 0) {
@@ -234,6 +214,7 @@ function setupModalEventListeners() {
   }
 }
 
+// 실시간 터미널 한글 에이전트 로그 출력
 function addLog(message, type = 'system') {
   const box = document.getElementById('terminal-logs-box');
   if (!box) return;
@@ -282,42 +263,6 @@ function isValidApiKey(key) {
   if (!key) return false;
   const cleanKey = key.trim();
   return cleanKey.startsWith('AIzaSy') && cleanKey.length >= 35;
-}
-
-// Chrome 내장 AI (Gemini Nano) 가용성 정밀 검증
-async function isChromeBuiltInAiAvailable() {
-  if (typeof window.ai === 'undefined') {
-    // ai.assistant 등 대체 명세 체크
-    if (typeof ai !== 'undefined' && ai.assistant) {
-      try {
-        const capabilities = await ai.assistant.capabilities();
-        return capabilities.available !== 'no';
-      } catch (e) {
-        return false;
-      }
-    }
-    return false;
-  }
-  try {
-    const capabilities = await window.ai.capabilities();
-    return capabilities.available !== 'no';
-  } catch (e) {
-    return false;
-  }
-}
-
-// Chrome 내장 AI 세션 자원 획득 도우미
-async function getChromeAiSession() {
-  if (typeof window.ai !== 'undefined' && window.ai.createTextSession) {
-    return await window.ai.createTextSession();
-  }
-  if (typeof window.ai !== 'undefined' && window.ai.assistant && window.ai.assistant.create) {
-    return await window.ai.assistant.create();
-  }
-  if (typeof ai !== 'undefined' && ai.assistant && ai.assistant.create) {
-    return await ai.assistant.create();
-  }
-  throw new Error("브라우저 내장 AI 세션을 초기화할 수 없습니다.");
 }
 
 function handleFileSelect() {
@@ -1304,62 +1249,14 @@ async function albumGeneratorModule(photos, apiKey, onProgress) {
       albumStoryResult = generateDefaultAlbumData(clusters);
     }
   } else {
-    // API Key가 없거나 제한일 때, 크롬 내장 AI (Gemini Nano) 호출 시도
-    let chromeAiUsed = false;
-    try {
-      const isChromeAiReady = await isChromeBuiltInAiAvailable();
-      if (isChromeAiReady) {
-        addLog('한글 진행 상황: Chrome 내장 AI(Gemini Nano)를 가동하여 여행 감성 이야기를 쓰고 있습니다...', 'info');
-        
-        const clusterMetadata = clusters.map((c, idx) => {
-          return `에피소드 ${idx+1} (사진 ${c.length}장, 촬영시각: ${c[0].captureTime.toLocaleTimeString('ko-KR')})`;
-        }).join('\n');
-
-        const session = await getChromeAiSession();
-        const prompt = `
-          너는 감성 여행 소설가야. 다음 여행의 촬영 클러스터 목록을 바탕으로 한글 여행 앨범북을 기획해줘.
-          
-          [여행 정보]:
-          ${clusterMetadata}
-          
-          [요구사항]:
-          반드시 다른 설명 없이 백틱(\`\`\`)을 제거한 순수한 JSON 포맷으로만 응답해줘. 형식은 다음과 같아:
-          {
-            "title": "전체 여행 대제목",
-            "description": "여행 요약 서평 (1~2줄)",
-            "episodes": [
-              {
-                "episodeIndex": 1,
-                "episodeTitle": "에피소드 소제목",
-                "episodeStory": "에피소드 설명 줄거리 (2-3문장)"
-              }
-            ]
-          }
-        `;
-        
-        const responseText = await session.prompt(prompt);
-        session.destroy();
-        
-        const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-        albumStoryResult = JSON.parse(cleanJson);
-        chromeAiUsed = true;
-        addLog('[시스템] Chrome 내장 AI 기반 스토리북이 성공적으로 조율되었습니다.', 'success');
-      }
-    } catch (chromeAiErr) {
-      console.error('Chrome 내장 AI 스토리 생성 오류:', chromeAiErr);
-      addLog('[시스템] 내장 AI 연산 중 일부 오류로 인해 로컬 기본 모드로 자동 전환하여 스토리북을 빌드합니다.', 'warning');
+    if (apiKey && apiKey !== "" && !isValidApiKey(apiKey)) {
+      addLog('[안내] 유효하지 않은 API Key 상태이므로, 로컬 룰 기반으로 여행 스토리북을 구성합니다.', 'info');
+    } else if (apiDisabledByLimit) {
+      addLog('[안내] Gemini API 제한 상태이므로, 로컬 엔진 기반으로 여행 스토리북을 자동 구성합니다.', 'info');
+    } else {
+      addLog('[정보] API Key가 설정되지 않아 로컬 기본 템플릿으로 앨범을 빌드합니다.', 'info');
     }
-
-    if (!chromeAiUsed) {
-      if (apiKey && apiKey !== "" && !isValidApiKey(apiKey)) {
-        addLog('[안내] 유효하지 않은 API Key 상태이므로, 로컬 룰 기반으로 여행 스토리북을 구성합니다.', 'info');
-      } else if (apiDisabledByLimit) {
-        addLog('[안내] Gemini API 제한 상태이므로, 로컬 엔진 기반으로 여행 스토리북을 자동 구성합니다.', 'info');
-      } else {
-        addLog('[정보] API Key가 설정되지 않아 로컬 기본 템플릿으로 앨범을 빌드합니다.', 'info');
-      }
-      albumStoryResult = generateDefaultAlbumData(clusters);
-    }
+    albumStoryResult = generateDefaultAlbumData(clusters);
   }
 
   onProgress(100);
