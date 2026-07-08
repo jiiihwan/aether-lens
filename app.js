@@ -781,7 +781,12 @@ async function duplicateDetectorModule(photos, threshold, apiKey, onProgress) {
 
       if (p1.pHash && p2.pHash) {
         const distance = calculateHammingDistance(p1.pHash, p2.pHash);
-        if (distance <= threshold) {
+        
+        // 시간차 기반 어댑티브 임계값 보정: 12초 이내 초밀착 연사는 해시가 다소 튀더라도 동일 구도로 판정 (기준치 threshold + 6 완화)
+        const timeDiffSeconds = Math.abs(p1.captureTime.getTime() - p2.captureTime.getTime()) / 1000;
+        const adaptiveThreshold = (timeDiffSeconds <= 12) ? Math.max(threshold + 6, 16) : threshold;
+
+        if (distance <= adaptiveThreshold) {
           p2.clusterId = p1.clusterId;
           p2.isDuplicate = true; 
           p2.isRepresentative = false;
