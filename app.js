@@ -894,23 +894,58 @@ function applyLocalAuditionFallback(members) {
 }
 
 function applyBestCutRatioFilter(photos, ratio) {
+  // 1. 정상 대표 사진들 목록 확보
   const representatives = photos.filter(p => !p.isBlurry && p.isRepresentative);
   
-  representatives.sort((a, b) => b.aestheticScore - a.aestheticScore);
-  const cutoffIndex = Math.max(1, Math.round(representatives.length * ratio));
+  // 2. 전체 대표 사진들의 총 개수 기준으로 사용자 설정 비율의 목표 컷 개수 계산
+  const targetBestCount = Math.max(1, Math.round(representatives.length * ratio));
   
-  representatives.forEach((p, idx) => {
-    if (idx < cutoffIndex) {
-      p.isBestCut = true;
-    } else {
-      p.isBestCut = false;
-      p.excludeReason = `품질 순위 컷오프: 본 사진의 미적 품질 점수는 ${p.aestheticScore}점입니다. 대표 컷 중에서 우수한 품질을 갖추었으나, 사용자가 설정한 최종 베스트 컷 상위 ${Math.round(ratio * 100)}% 선별 조건(기준치 순위외)에 미치지 못해 앨범북에서 제외되었습니다.`;
-    }
+  // 3. 클러스터(중복 묶음)별로 정리하여 그룹당 최우선 1위 선별
+  const clusters = {};
+  representatives.forEach(p => {
+    if (!clusters[p.clusterId]) clusters[p.clusterId] = [];
+    clusters[p.clusterId].push(p);
   });
 
+  const clusterIds = Object.keys(clusters);
+  
+  // 모든 사진의 isBestCut 기본값 초기화
+  photos.forEach(p => p.isBestCut = false);
+
+  const selectedPhotos = new Set();
+
+  // [1단계 생존]: 각 중복 그룹(Cluster) 내 최고 득점 대표 1장씩은 우선적으로 무조건 선정! (특정 순간의 앨범 유실 방지)
+  clusterIds.forEach(cid => {
+    const members = clusters[cid];
+    members.sort((a, b) => b.aestheticScore - a.aestheticScore);
+    const bestInCluster = members[0];
+    
+    bestInCluster.isBestCut = true;
+    selectedPhotos.add(bestInCluster.id);
+  });
+
+  // [2단계 생존]: 남은 목표 슬롯이 있으면 아직 미선정된 대표 사진들 중 점수 높은 순으로 추가 선정
+  if (selectedPhotos.size < targetBestCount) {
+    const remainingReps = representatives.filter(p => !selectedPhotos.has(p.id));
+    remainingReps.sort((a, b) => b.aestheticScore - a.aestheticScore);
+    
+    const extraNeeded = targetBestCount - selectedPhotos.size;
+    for (let i = 0; i < Math.min(extraNeeded, remainingReps.length); i++) {
+      remainingReps[i].isBestCut = true;
+      selectedPhotos.add(remainingReps[i].id);
+    }
+  }
+
+  // 4. 탈락한 사진들에 대한 제외 이유 피드백 맵핑
   photos.forEach(p => {
+    if (p.isBlurry) return; // 흔들린 사진은 이미 고유 사유 있음
     if (p.isDuplicate) {
-      p.isBestCut = false;
+      p.isBestCut = false; // 중복 사진도 기본 제외 사유 있음
+      return;
+    }
+    
+    if (!p.isBestCut) {
+      p.excludeReason = `순위 컷오프(그룹대표 안착 실패): 이 에피소드 그룹 내에 더 심미성이 뛰어나 베스트로 선정된 대표 컷들이 존재하며, 사용자가 설정한 최종 상위 ${Math.round(ratio * 100)}% 선별 한도 순위 밖으로 밀려나 제외되었습니다.`;
     }
   });
 
