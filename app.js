@@ -152,6 +152,27 @@ function setupUIEventListeners() {
       applyAlbumZoom(zoomType);
     });
   }
+
+  const downloadRawBtn = document.getElementById('download-raw-zip-btn');
+  if (downloadRawBtn) {
+    downloadRawBtn.addEventListener('click', downloadRawPhotosZip);
+  }
+
+  const showLogsBtn = document.getElementById('show-terminal-logs-btn');
+  if (showLogsBtn) {
+    showLogsBtn.addEventListener('click', () => {
+      const modalBox = document.getElementById('modal-log-box');
+      const originalBox = document.getElementById('terminal-logs-box');
+      const logModal = document.getElementById('log-modal');
+      if (modalBox && originalBox && logModal) {
+        modalBox.innerHTML = originalBox.innerHTML;
+        logModal.classList.remove('hidden');
+        setTimeout(() => {
+          modalBox.scrollTop = modalBox.scrollHeight;
+        }, 50);
+      }
+    });
+  }
 }
 
 function setupStagingEventListeners() {
@@ -209,6 +230,21 @@ function setupModalEventListeners() {
     modal.addEventListener('click', (e) => {
       if (e.target === modal) {
         modal.classList.add('hidden');
+      }
+    });
+  }
+
+  const logModal = document.getElementById('log-modal');
+  const logCloseBtn = document.getElementById('log-modal-close-btn');
+
+  if (logCloseBtn && logModal) {
+    logCloseBtn.addEventListener('click', () => {
+      logModal.classList.add('hidden');
+    });
+
+    logModal.addEventListener('click', (e) => {
+      if (e.target === logModal) {
+        logModal.classList.add('hidden');
       }
     });
   }
@@ -1517,9 +1553,9 @@ function showAestheticDetailModal(photo) {
   const photoCaption = document.getElementById('modal-photo-caption');
   if (photoCaption) {
     if (photo.decisionReason) {
-      photoCaption.innerHTML = `💬 <strong>AI 심사평:</strong> "${photo.decisionReason}"`;
+      photoCaption.innerHTML = `💬 <strong>AI 구도 심사평:</strong> "${photo.decisionReason}"`;
     } else {
-      photoCaption.innerHTML = `📝 <strong>에이전트 품질 진단:</strong> 초점 선명도 수치(Lap: ${photo.laplacianScore}) 및 표준편차 대비율 분석에서 최상의 밸런스를 뽐내어 선정된 명품 베스트 컷입니다.`;
+      photoCaption.innerHTML = generateAestheticComment(photo);
     }
   }
 
@@ -1633,6 +1669,101 @@ function downloadEnhancedPhotosZip() {
     };
     blobReader.readAsArrayBuffer(photo.enhancedBlob);
   });
+}
+
+// =======================================================
+// [ZIP 다운로드] 최종 선정된 원본 파일 일괄 로컬 압축 다운로드
+// =======================================================
+function downloadRawPhotosZip() {
+  const bestPhotos = processedPhotos.filter(p => p.isBestCut);
+  if (bestPhotos.length === 0) return;
+
+  addLog('한글 진행 상황: 보정 전 원본 사진들을 ZIP 파일로 압축하는 작업을 개시합니다...', 'info');
+
+  const zip = new JSZip();
+  const folder = zip.folder("raw_photos");
+
+  let addedCount = 0;
+  bestPhotos.forEach((photo) => {
+    const blobReader = new FileReader();
+    blobReader.onload = function() {
+      folder.file(`raw_${photo.filename}`, this.result);
+      addedCount++;
+      if (addedCount === bestPhotos.length) {
+        zip.generateAsync({ type: "blob" }).then((content) => {
+          const url = URL.createObjectURL(content);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = "AetherLens_raw_photos.zip";
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          addLog('한글 진행 상황: 원본 ZIP 파일 다운로드가 준비되어 전송이 시작되었습니다.', 'success');
+        });
+      }
+    };
+    blobReader.readAsArrayBuffer(photo.file);
+  });
+}
+
+// =======================================================
+// [지능형 비평 에이전트] 작가 관점의 감성 구도 및 연출 한줄평 생성
+// =======================================================
+function generateAestheticComment(photo) {
+  // 1. 구도 연출 평가 풀 (Orientation 기반)
+  const landscapeComments = [
+    "수평의 황금 삼분할 프레임이 깔끔하게 어우러져, 풍경 고유의 시원한 개방감과 시각적 평온함을 돋보이게 이끌어 냈습니다.",
+    "좌우 대칭 구조의 정교한 밸런스가 돋보이며, 보는 이의 시선을 중심부로 자연스럽게 흡입시키는 안정감 높은 화면 연출입니다.",
+    "프레임 전체에 흐르는 사선 구도가 시선의 역동적인 이동을 유도하여, 단순 정적 기록을 넘어 활력 있는 대기감을 선사합니다.",
+    "전경과 원경의 조화로운 깊이감을 영리하게 설계하여, 여행 속 공간의 입체적 서사를 사진 한 장에 훌륭히 농축했습니다."
+  ];
+
+  const portraitComments = [
+    "세로 프레임 특유의 시원한 수직 상승 비율을 영리하게 가미하여 피사체와 배경의 조화로움을 아름답게 극대화했습니다.",
+    "피사체를 삼분할 교차선 상의 핵심 지점에 단정히 안착시켜, 배경 너머의 내러티브가 상상되는 낭만적인 화면을 설계했습니다.",
+    "수직의 기하학적 요소들이 안정적인 무게중심을 잡아주어, 인물의 살아있는 표정과 현장 고유의 미장센에 온전히 포커스 시켜 줍니다.",
+    "세로 구도 특유의 깊은 공간감을 조율하여 여행지가 간직한 본연의 서정성과 고독한 낭만을 매력적으로 포착했습니다."
+  ];
+
+  // 2. 조도(노출) 감성 평가 풀
+  const exposure = photo.exifStats || { mean: 128, stdDev: 30 };
+  let lightComment = "";
+  if (exposure.mean < 80) {
+    lightComment = "차분하게 내려앉은 로우 키(Low-key) 실루엣의 명암이 시각적 깊이를 더해 영화 속 한 장면 같은 고독한 여운을 전합니다.";
+  } else if (exposure.mean > 190) {
+    lightComment = "화사하게 들어찬 따뜻한 빛의 유입이 프레임 전반에 맑고 생기 가득한 에너지를 가득 채워 기분 좋은 활력을 불어넣습니다.";
+  } else {
+    lightComment = "과장되거나 묻히는 구석 없이 밝기가 균일하게 펼쳐져, 현장의 본연 색조와 자연스러운 대기감을 투명하게 연출합니다.";
+  }
+
+  // 3. 콘트라스트 및 질감 평가 풀
+  let contrastComment = "";
+  if (exposure.stdDev > 40) {
+    contrastComment = "빛과 그림자의 과감한 대조(Contrast)가 깊이 있는 텐션을 형성하여, 찰나의 피사체 윤곽을 입체적으로 강조합니다.";
+  } else {
+    contrastComment = "부드럽고 풍부한 미들톤 그라데이션이 사물의 미세한 입자감과 텍스처를 자연스럽게 묘사하여 은은한 서정성을 띱니다.";
+  }
+
+  // 4. 선명도 감성 평가 풀
+  let sharpnessComment = "";
+  if (photo.laplacianScore > 100) {
+    sharpnessComment = "순간을 잡아챈 칼날 같은 에지 표현력은 찰나의 역동감과 풍부한 피사체의 질감을 극적으로 생생하게 증명해 줍니다.";
+  } else {
+    sharpnessComment = "프레임 주변부를 포근하고 몽환적인 톤으로 감싸 안아 필름 카메라 특유의 편안하고 따스한 감성 필터를 입혀줍니다.";
+  }
+
+  // 파일명 해시 시드를 활용해 사진마다 고유하지만 고정된 평가 한줄평을 매핑
+  const seed = (photo.filename.charCodeAt(0) || 0) + (photo.filename.charCodeAt(photo.filename.length - 1) || 0);
+  const orientPool = photo.orientation === 'portrait' ? portraitComments : landscapeComments;
+  
+  const comment1 = orientPool[seed % orientPool.length];
+  const comment2 = lightComment;
+  const comment3 = contrastComment;
+  const comment4 = sharpnessComment;
+
+  // 전체를 매끄러운 한 줄로 조립하여 반환
+  return `📝 <strong>에이전트 감성 비평평:</strong> ${comment1} ${comment2} ${comment3} ${comment4}`;
 }
 
 // 앨범북 줌 크기 적용 및 동적 레이아웃 열 제어 함수

@@ -222,9 +222,17 @@
                 <span class="pill pill-success"><i data-lucide="sparkles"></i> 최종 보정: <strong id="stat-best">0</strong>장</span>
               </div>
             </div>
-            <div class="summary-actions">
-              <button class="btn-primary btn-large btn-glow" id="download-zip-btn">
-                <i data-lucide="download"></i> 보정 완료된 베스트 컷 다운로드 (.zip)
+            <div class="summary-actions" style="display: flex; flex-direction: column; gap: 0.75rem; align-items: flex-end;">
+              <div style="display: flex; gap: 0.75rem;">
+                <button class="btn-primary btn-glow" id="download-zip-btn" style="padding: 0.75rem 1.25rem; font-size: 0.9rem;">
+                  <i data-lucide="download-cloud"></i> 보정본 일괄 다운로드 (.zip)
+                </button>
+                <button class="btn-primary" id="download-raw-zip-btn" style="padding: 0.75rem 1.25rem; font-size: 0.9rem; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--panel-border); color: #fff; cursor: pointer; border-radius: 8px; transition: all 0.3s ease;">
+                  <i data-lucide="download"></i> 원본 일괄 다운로드 (.zip)
+                </button>
+              </div>
+              <button class="btn-secondary" id="show-terminal-logs-btn" style="padding: 0.4rem 0.8rem; font-size: 0.8rem; border-radius: 6px; border: 1px solid rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.05); color: var(--accent-purple); cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; gap: 0.3rem;">
+                <i data-lucide="terminal" style="width: 12px; height: 12px;"></i> 실시간 분석 로그 확인
               </button>
             </div>
           </div>
@@ -351,6 +359,21 @@
             <h4>💡 AI 에이전트 최종 분석평</h4>
             <p id="modal-summary-text">이 사진은 유사 연사 그룹 중 뛰어난 수평 정렬을 가졌으며, 로컬 화질 통계에서 압도적으로 우수하여 베스트 컷으로 선정되었습니다.</p>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 분석 로그 확인용 모달 팝업 -->
+  <div id="log-modal" class="modal-overlay hidden">
+    <div class="modal-content panel-glass" style="max-width: 800px; height: 80vh; background: rgba(15, 17, 28, 0.98); border: 1px solid rgba(168, 85, 247, 0.35);">
+      <div class="modal-header">
+        <h3><i data-lucide="terminal" class="icon-neon" style="color: var(--accent-purple);"></i> 실시간 에이전트 분석 로그 기록</h3>
+        <button class="modal-close-btn" id="log-modal-close-btn">&times;</button>
+      </div>
+      <div class="modal-body" style="grid-template-columns: 1fr; overflow-y: hidden; height: calc(100% - 70px); padding: 1.5rem;">
+        <div class="terminal-logs" id="modal-log-box" style="height: 100%; max-height: 100%; background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 255, 255, 0.05); font-family: monospace; font-size: 0.85rem; overflow-y: auto;">
+          <!-- 로그 데이터 동적 복사 공간 -->
         </div>
       </div>
     </div>
