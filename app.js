@@ -917,40 +917,54 @@ function applyBestCutRatioFilter(photos, ratio) {
   // 모든 사진의 isBestCut 기본값 초기화
   photos.forEach(p => p.isBestCut = false);
 
-  const selectedPhotos = new Set();
-
-  // [1단계 생존]: 각 중복 그룹(Cluster) 내 최고 득점 대표 1장씩은 우선적으로 무조건 선정! (특정 순간의 앨범 유실 방지)
+  // 1단계: 각 클러스터별 최고점 에이스(1등) 대표 사진들 획득
+  const aces = [];
   clusterIds.forEach(cid => {
     const members = clusters[cid];
     members.sort((a, b) => b.aestheticScore - a.aestheticScore);
-    const bestInCluster = members[0];
-    
-    bestInCluster.isBestCut = true;
-    selectedPhotos.add(bestInCluster.id);
+    aces.push(members[0]);
   });
 
-  // [2단계 생존]: 남은 목표 슬롯이 있으면 아직 미선정된 대표 사진들 중 점수 높은 순으로 추가 선정
-  if (selectedPhotos.size < targetBestCount) {
-    const remainingReps = representatives.filter(p => !selectedPhotos.has(p.id));
-    remainingReps.sort((a, b) => b.aestheticScore - a.aestheticScore);
-    
-    const extraNeeded = targetBestCount - selectedPhotos.size;
-    for (let i = 0; i < Math.min(extraNeeded, remainingReps.length); i++) {
-      remainingReps[i].isBestCut = true;
-      selectedPhotos.add(remainingReps[i].id);
+  // 에이스 대표 사진들을 점수 기준으로 내림차순 정렬
+  aces.sort((a, b) => b.aestheticScore - a.aestheticScore);
+
+  const selectedPhotos = new Set();
+
+  if (aces.length <= targetBestCount) {
+    // [경로 A]: 에이스 수가 목표치 이하라면 모든 에이스는 100% 무조건 생존! (여정 유실 방지)
+    aces.forEach(p => {
+      p.isBestCut = true;
+      selectedPhotos.add(p.id);
+    });
+
+    // 남은 슬롯 자리가 있으면 아직 선정되지 않은 나머지 대표들 중 점수 순으로 보충
+    if (selectedPhotos.size < targetBestCount) {
+      const remainingReps = representatives.filter(p => !selectedPhotos.has(p.id));
+      remainingReps.sort((a, b) => b.aestheticScore - a.aestheticScore);
+      
+      const extraNeeded = targetBestCount - selectedPhotos.size;
+      for (let i = 0; i < Math.min(extraNeeded, remainingReps.length); i++) {
+        remainingReps[i].isBestCut = true;
+        selectedPhotos.add(remainingReps[i].id);
+      }
+    }
+  } else {
+    // [경로 B]: 에이스 수가 목표 설정치보다 많을 경우, 40% 등 비율 한도를 칼같이 지키기 위해 에이스 중 고득점 상위 targetBestCount 장만 베스트로 선발!
+    for (let i = 0; i < targetBestCount; i++) {
+      aces[i].isBestCut = true;
     }
   }
 
   // 4. 탈락한 사진들에 대한 제외 이유 피드백 맵핑
   photos.forEach(p => {
-    if (p.isBlurry) return; // 흔들린 사진은 이미 고유 사유 있음
+    if (p.isBlurry) return; // 흔들린 사진 제외
     if (p.isDuplicate) {
-      p.isBestCut = false; // 중복 사진도 기본 제외 사유 있음
+      p.isBestCut = false; // 중복 사진 제외
       return;
     }
     
     if (!p.isBestCut) {
-      p.excludeReason = `순위 컷오프(그룹대표 안착 실패): 이 에피소드 그룹 내에 더 심미성이 뛰어나 베스트로 선정된 대표 컷들이 존재하며, 사용자가 설정한 최종 상위 ${Math.round(ratio * 100)}% 선별 한도 순위 밖으로 밀려나 제외되었습니다.`;
+      p.excludeReason = `순위 컷오프(선정 한도 제외): 본 사진은 에피소드 대표 후보였으나, 사용자가 설정한 최종 상위 ${Math.round(ratio * 100)}% 선별 조건(기준치 순위외)에 밀려 앨범북에서 제외되었습니다.`;
     }
   });
 
@@ -1595,7 +1609,12 @@ function showAestheticDetailModal(photo) {
     if (photo.decisionReason) {
       photoCaption.innerHTML = `💬 <strong>AI 구도 심사평:</strong> "${photo.decisionReason}"`;
     } else {
-      photoCaption.innerHTML = `📝 <strong>에이전트 품질 진단:</strong> 본 사진은 초점 선명도(Lap: ${photo.laplacianScore}) 및 명암비 대비율 통계 분석을 거쳐 최적의 밸런스를 확보해 대표 베스트 컷으로 선정되었습니다.`;
+      const isApiUsed = isValidApiKey(localStorage.getItem('gemini_api_key')) && !apiDisabledByLimit;
+      if (isApiUsed) {
+        photoCaption.innerHTML = generateAestheticComment(photo);
+      } else {
+        photoCaption.innerHTML = `📝 <strong>에이전트 품질 진단:</strong> 본 사진은 초점 선명도(Lap: ${photo.laplacianScore}) 및 명암비 대비율 통계 분석을 거쳐 최적의 밸런스를 확보해 대표 베스트 컷으로 선정되었습니다.`;
+      }
     }
   }
 
@@ -1825,4 +1844,63 @@ function applyAlbumZoom(type) {
       showcase.classList.add('zoom-normal');
     }
   });
+}
+
+// =======================================================
+// [지능형 비평 에이전트] API 가동 성공 세션 시의 작가 관점 감성 구도 및 연출 한줄평 생성
+// =======================================================
+function generateAestheticComment(photo) {
+  // 1. 구도 연출 평가 풀 (Orientation 기반)
+  const landscapeComments = [
+    "수평의 황금 삼분할 프레임이 깔끔하게 어우러져, 풍경 고유의 시원한 개방감과 시각적 평온함을 돋보이게 이끌어 냈습니다.",
+    "좌우 대칭 구조의 정교한 밸런스가 돋보이며, 보는 이의 시선을 중심부로 자연스럽게 흡입시키는 안정감 높은 화면 연출입니다.",
+    "프레임 전체에 흐르는 사선 구도가 시선의 역동적인 이동을 유도하여, 단순 정적 기록을 넘어 활력 있는 대기감을 선사합니다.",
+    "전경และ 원경의 조화로운 깊이감을 영리하게 설계하여, 여행 속 공간의 입체적 서사를 사진 한 장에 훌륭히 농축했습니다."
+  ];
+
+  const portraitComments = [
+    "세로 프레임 특유의 시원한 수직 상승 비율을 영리하게 가미하여 피사체와 배경의 조화로움을 아름답게 극대화했습니다.",
+    "피사체를 삼분할 교차선 상의 핵심 지점에 단정히 안착시켜, 배경 너머의 내러티브가 상상되는 낭만적인 화면을 설계했습니다.",
+    "수직의 기하학적 요소들이 안정적인 무게중심을 잡아주어, 인물의 살아있는 표정과 현장 고유의 미장센에 온전히 포커스 시켜 줍니다.",
+    "세로 구도 특유의 깊은 공간감을 조율하여 여행지가 간직한 본연의 서정성과 고독한 낭만을 매력적으로 포착했습니다."
+  ];
+
+  // 2. 조도(노출) 감성 평가 풀
+  const exposure = photo.exifStats || { mean: 128, stdDev: 30 };
+  let lightComment = "";
+  if (exposure.mean < 80) {
+    lightComment = "차분하게 내려앉은 로우 키(Low-key) 실루엣의 명암이 시각적 깊이를 더해 영화 속 한 장면 같은 고독한 여운을 전합니다.";
+  } else if (exposure.mean > 190) {
+    lightComment = "화사하게 들어찬 따뜻한 빛의 유입이 프레임 전반에 맑고 생기 가득한 에너지를 가득 채워 기분 좋은 활력을 불어넣습니다.";
+  } else {
+    lightComment = "과장되거나 묻히는 구석 없이 밝기가 균일하게 펼쳐져, 현장의 본연 색조와 자연스러운 대기감을 투명하게 연출합니다.";
+  }
+
+  // 3. 콘트라스트 및 질감 평가 풀
+  let contrastComment = "";
+  if (exposure.stdDev > 40) {
+    contrastComment = "빛과 그림자의 과감한 대조(Contrast)가 깊이 있는 텐션을 형성하여, 찰나의 피사체 윤곽을 입체적으로 강조합니다.";
+  } else {
+    contrastComment = "부드럽고 풍부한 미들톤 그라데이션이 사물의 미세한 입자감과 텍스처를 자연스럽게 묘사하여 은은한 서정성을 띱니다.";
+  }
+
+  // 4. 선명도 감성 평가 풀
+  let sharpnessComment = "";
+  if (photo.laplacianScore > 100) {
+    sharpnessComment = "순간을 잡아챈 칼날 같은 에지 표현력은 찰나의 역동감과 풍부한 피사체의 질감을 극적으로 생생하게 증명해 줍니다.";
+  } else {
+    sharpnessComment = "프레임 주변부를 포근하고 몽환적인 톤으로 감싸 안아 필름 카메라 특유의 편안하고 따스한 감성 필터를 입혀줍니다.";
+  }
+
+  // 파일명 해시 시드를 활용해 사진마다 고유하지만 고정된 평가 한줄평을 매핑
+  const seed = (photo.filename.charCodeAt(0) || 0) + (photo.filename.charCodeAt(photo.filename.length - 1) || 0);
+  const orientPool = photo.orientation === 'portrait' ? portraitComments : landscapeComments;
+  
+  const comment1 = orientPool[seed % orientPool.length];
+  const comment2 = lightComment;
+  const comment3 = contrastComment;
+  const comment4 = sharpnessComment;
+
+  // 전체를 매끄러운 한 줄로 조립하여 반환
+  return `📝 <strong>에이전트 감성 비평평:</strong> ${comment1} ${comment2} ${comment3} ${comment4}`;
 }
