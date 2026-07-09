@@ -1595,7 +1595,7 @@ function showAestheticDetailModal(photo) {
     if (photo.decisionReason) {
       photoCaption.innerHTML = `💬 <strong>AI 구도 심사평:</strong> "${photo.decisionReason}"`;
     } else {
-      photoCaption.innerHTML = generateAestheticComment(photo);
+      photoCaption.innerHTML = `📝 <strong>에이전트 품질 진단:</strong> 본 사진은 초점 선명도(Lap: ${photo.laplacianScore}) 및 명암비 대비율 통계 분석을 거쳐 최적의 밸런스를 확보해 대표 베스트 컷으로 선정되었습니다.`;
     }
   }
 
