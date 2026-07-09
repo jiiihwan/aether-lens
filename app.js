@@ -902,8 +902,9 @@ function applyBestCutRatioFilter(photos, ratio) {
   // 1. 정상 대표 사진들 목록 확보
   const representatives = photos.filter(p => !p.isBlurry && p.isRepresentative);
   
-  // 2. 전체 대표 사진들의 총 개수 기준으로 사용자 설정 비율의 목표 컷 개수 계산
-  const targetBestCount = Math.max(1, Math.round(representatives.length * ratio));
+  // 2. 흔들린 사진을 제외한 전체 정상 업로드 사진 수 기준으로 최종 베스트 컷 목표 개수 계산
+  const validTotalCount = photos.filter(p => !p.isBlurry).length;
+  const targetBestCount = Math.max(1, Math.round(validTotalCount * ratio));
   
   // 3. 클러스터(중복 묶음)별로 정리하여 그룹당 최우선 1위 선별
   const clusters = {};
