@@ -1187,7 +1187,7 @@ function applyCLAHEEnhancement(srcUrl) {
         let channels = new cv.MatVector();
         cv.split(lab, channels);
         
-        let clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
+        let clahe = new cv.CLAHE(5.0, new cv.Size(16, 16));
         let dstL = new cv.Mat();
         clahe.apply(channels.get(0), dstL);
         
