@@ -1049,69 +1049,73 @@ function getResizedBase64(url, maxDim) {
 }
 
 async function requestGeminiVisionDecision(apiKey, file1, base64_1, file2, base64_2) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-  
-  const promptText = `
-    너는 전문 사진작가이자 사진 큐레이터야.
-    제공된 두 장의 여행 사진은 동일한 장소에서 연사로 찍힌 매우 유사한 구도의 사진이야.
-    이 두 장 중, 수평 상태가 더 안정적이고, 인물의 표정이 자연스러우며(눈을 감지 않음), 구도가 미적/예술적으로 더 아름다운 베스트 컷 딱 1장을 선정해줘.
+  const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+  let lastError = null;
+
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     
-    [입력 이미지 정보]:
-    - 이미지 A 파일명: ${file1}
-    - 이미지 B 파일명: ${file2}
-    
-    [응답 포맷]:
-    반드시 마크다운 백틱 없이 순수한 JSON 포맷으로만 응답해줘. 형식은 다음과 같아:
-    {
-      "winner": "선택한 이미지 파일명(예: ${file1} 또는 ${file2})",
-      "reason": "해당 이미지를 베스트 컷으로 선정한 이유 요약 (한글로 1~2줄)"
+    const promptText = `
+      너는 전문 사진작가이자 사진 큐레이터야.
+      제공된 두 장의 여행 사진은 동일한 장소에서 연사로 찍힌 매우 유사한 구도의 사진이야.
+      이 두 장 중, 수평 상태가 더 안정적이고, 인물의 표정이 자연스러우며(눈을 감지 않음), 구도가 미적/예술적으로 더 아름다운 베스트 컷 딱 1장을 선정해줘.
+      
+      [입력 이미지 정보]:
+      - 이미지 A 파일명: ${file1}
+      - 이미지 B 파일명: ${file2}
+      
+      [응답 포맷]:
+      반드시 마크다운 백틱 없이 순수한 JSON 포맷으로만 응답해줘. 형식은 다음과 같아:
+      {
+        "winner": "선택한 이미지 파일명(예: ${file1} 또는 ${file2})",
+        "reason": "해당 이미지를 베스트 컷으로 선정한 이유 요약 (한글로 1~2줄)"
+      }
+    `;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [
+              { text: promptText },
+              {
+                inlineData: {
+                  mimeType: 'image/jpeg',
+                  data: base64_1
+                }
+              },
+              {
+                inlineData: {
+                  mimeType: 'image/jpeg',
+                  data: base64_2
+                }
+              }
+            ]
+          }]
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP 상태 코드: ${response.status}`);
+      }
+
+      const resData = await response.json();
+      const responseText = resData.candidates[0].content.parts[0].text.trim();
+      const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(cleanJson);
+
+    } catch (err) {
+      lastError = err;
+      addLog(`[AI 우회] ${model} 모델 구도 오디션 한도 도달 또는 에러 (${err.message}). 다음 대체 모델로 즉시 스위칭합니다...`, 'warning');
     }
-  `;
-
-  let response;
-  try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: promptText },
-            {
-              inlineData: {
-                mimeType: 'image/jpeg',
-                data: base64_1
-              }
-            },
-            {
-              inlineData: {
-                mimeType: 'image/jpeg',
-                data: base64_2
-              }
-            }
-          ]
-        }]
-      })
-    });
-  } catch (netErr) {
-    throw new Error(`네트워크 전송 오류 (WASM 대체 필요): ${netErr.message}`);
   }
 
-  if (!response.ok) {
-    throw new Error(`API 통신 에러 발생 [상태 코드: ${response.status}] (로컬 WASM 폴백 전환)`);
-  }
-
-  const resData = await response.json();
-  
-  try {
-    const responseText = resData.candidates[0].content.parts[0].text.trim();
-    const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleanJson);
-  } catch (parseErr) {
-    throw new Error(`JSON 파싱 실패 (로컬로 보완): ${parseErr.message}`);
-  }
+  throw new Error(`모든 Flash AI 모델(2.5, 2.0, 1.5)의 무료 한도가 소진되어 로컬 모드로 자동 전환합니다. (상세: ${lastError.message})`);
 }
 
 function calculateContrastScore(url) {
@@ -1313,21 +1317,43 @@ async function albumGeneratorModule(photos, apiKey, onProgress) {
         }
       `;
 
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{ text: promptText }]
-          }]
-        })
-      });
+      const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+      let response = null;
+      let success = false;
+      let lastError = null;
 
-      if (!response.ok) {
-        throw new Error(`HTTP API 오류: ${response.status}`);
+      for (let i = 0; i < models.length; i++) {
+        const model = models[i];
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+        
+        try {
+          response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              contents: [{
+                parts: [{ text: promptText }]
+              }]
+            })
+          });
+
+          if (response.ok) {
+            success = true;
+            addLog(`한글 진행 상황: AI 스토리북 생성 완료 (${model} 모델 가동)`, 'success');
+            break;
+          } else {
+            throw new Error(`HTTP 상태 ${response.status}`);
+          }
+        } catch (err) {
+          lastError = err;
+          addLog(`[AI 우회] 스토리 생성 실패 (${model}): ${err.message}. 다음 대체 모델을 연동 시도합니다...`, 'warning');
+        }
+      }
+
+      if (!success) {
+        throw new Error(`모든 AI 스토리북 모델 한도 초과: ${lastError.message}`);
       }
 
       const resData = await response.json();
