@@ -298,7 +298,8 @@ function setPipelineStep(stepId, status = 'active') {
 function isValidApiKey(key) {
   if (!key) return false;
   const cleanKey = key.trim();
-  return cleanKey.startsWith('AIzaSy') && cleanKey.length >= 35;
+  // 표준 구글 키(AIzaSy) 및 GCP/G Suite 계열 특수 세션 키(AQ로 시작) 형식 모두 정식 허용
+  return (cleanKey.startsWith('AIzaSy') || cleanKey.startsWith('AQ')) && cleanKey.length >= 35;
 }
 
 function handleFileSelect() {
