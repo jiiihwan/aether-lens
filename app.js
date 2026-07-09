@@ -827,8 +827,8 @@ async function duplicateDetectorModule(photos, threshold, apiKey, onProgress) {
         try {
           addLog(`[AI 오디션] 중복 세트 발견. (${candidate1.filename} vs ${candidate2.filename}) 구도 분석을 의뢰합니다...`, 'info');
           
-          const base64Img1 = await getResizedBase64(candidate1.blobUrl, 300);
-          const base64Img2 = await getResizedBase64(candidate2.blobUrl, 300);
+          const base64Img1 = await getResizedBase64(candidate1.blobUrl, 1024);
+          const base64Img2 = await getResizedBase64(candidate2.blobUrl, 1024);
           
           const decision = await requestGeminiVisionDecision(apiKey, candidate1.filename, base64Img1, candidate2.filename, base64Img2);
           
