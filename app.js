@@ -1049,7 +1049,7 @@ function getResizedBase64(url, maxDim) {
 }
 
 async function requestGeminiVisionDecision(apiKey, file1, base64_1, file2, base64_2) {
-  const models = ['gemini-3.5-flash', 'gemini-3-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2-flash', 'gemini-2-flash-lite'];
+  const models = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.5-flash', 'gemini-3-flash', 'gemini-3.1-flash-lite', 'gemini-2-flash', 'gemini-2-flash-lite'];
   let lastError = null;
 
   for (let i = 0; i < models.length; i++) {
@@ -1317,7 +1317,7 @@ async function albumGeneratorModule(photos, apiKey, onProgress) {
         }
       `;
 
-      const models = ['gemini-3.5-flash', 'gemini-3-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2-flash', 'gemini-2-flash-lite'];
+      const models = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3.5-flash', 'gemini-3-flash', 'gemini-3.1-flash-lite', 'gemini-2-flash', 'gemini-2-flash-lite'];
       let response = null;
       let success = false;
       let lastError = null;
